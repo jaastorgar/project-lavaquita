@@ -1,54 +1,30 @@
 import * as SQLite from "expo-sqlite";
 
-let db = null;
+let dbInstance = null;
 
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-export async function getDb() {
-  if (!db) {
-    db = await SQLite.openDatabaseAsync("lavaquita.db");
-
-    // Ajustes para reducir bloqueos
-    // (si alguna falla, no pasa nada: seguimos igual)
-    try {
-      await db.execAsync(`
-        PRAGMA foreign_keys = ON;
-        PRAGMA journal_mode = WAL;
-        PRAGMA busy_timeout = 5000;
-      `);
-    } catch (e) {
-      // opcional: console.log("PRAGMA warning:", e);
-    }
+async function getDb() {
+  if (!dbInstance) {
+    dbInstance = await SQLite.openDatabaseAsync("lavaquita.db");
   }
-  return db;
+  return dbInstance;
 }
 
-// Reintentos automáticos si SQLite está locked/busy
 export async function executeSql(sql, params = []) {
-  const database = await getDb();
-  const isSelect = sql.trim().toUpperCase().startsWith("SELECT");
-
-  const maxRetries = 6;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      if (isSelect) {
-        return await database.getAllAsync(sql, params); // ARRAY
-      }
-      return await database.runAsync(sql, params); // { lastInsertRowId, changes }
-    } catch (err) {
-      const msg = String(err?.message ?? err);
-      const locked =
-        msg.toLowerCase().includes("locked") ||
-        msg.toLowerCase().includes("busy");
-
-      if (!locked || attempt === maxRetries) {
-        throw err;
-      }
-
-      // backoff simple
-      await sleep(120 * (attempt + 1));
+  const db = await getDb();
+  try {
+    if (sql.trim().toUpperCase().startsWith("SELECT")) {
+      return await db.getAllAsync(sql, params);
+    } else {
+      return await db.runAsync(sql, params);
     }
+  } catch (error) {
+    console.error("Error SQL:", error);
+    throw error;
   }
+}
+
+// Función para el botón del menú de reinicio
+export async function deleteAllData() {
+  await executeSql(`DELETE FROM records;`);
+  await executeSql(`DELETE FROM sqlite_sequence WHERE name='records';`);
 }

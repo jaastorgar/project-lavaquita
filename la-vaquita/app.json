@@ -1,32 +1,35 @@
 {
   "expo": {
-    "name": "la-vaquita",
+    "name": "La Vaquita",
     "slug": "la-vaquita",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/images/splash-vaquita.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#4A008B"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.javito.lavaquita"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#4A008B"
       },
-      "edgeToEdgeEnabled": true
+      "package": "com.javito.lavaquita"
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
+    "extra": {
+      "eas": {
+        "projectId": "1deb6b1f-836c-43c4-a123-6257b831b948"
+      }
     },
     "plugins": [
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-secure-store"
     ]
   }
 }
