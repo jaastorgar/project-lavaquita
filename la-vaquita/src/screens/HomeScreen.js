@@ -1,110 +1,253 @@
 import { useState, useCallback } from "react";
-import { View, Text, Pressable, ScrollView, StyleSheet, Alert, Modal } from "react-native";
+import {
+  View,
+  Text,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Alert,
+} from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { executeSql, deleteAllData } from "../db/database";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { executeSql } from "../db/database";
+import { Ionicons } from "@expo/vector-icons";
 
 export default function HomeScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [coins, setCoins] = useState([]);
-  const [menuVisible, setMenuVisible] = useState(false);
 
-  const loadCoins = useCallback(async () => {
-    try {
-      const rows = await executeSql(`
-        SELECT c.id, c.name, c.value, 
-          IFNULL(SUM(r.subtotal), 0) AS total
-        FROM coins c
-        LEFT JOIN records r ON r.coin_id = c.id
-        GROUP BY c.id
-        ORDER BY c.value ASC;
-      `);
-      setCoins(rows ?? []);
-    } catch (err) { console.log(err); }
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      loadCoins();
+    }, [])
+  );
 
-  useFocusEffect(useCallback(() => { loadCoins(); }, [loadCoins]));
+  async function loadCoins() {
+    const data = await executeSql(`
+      SELECT c.id, c.name, c.value,
+        IFNULL(SUM(r.subtotal), 0) AS total,
+        IFNULL(SUM(r.quantity), 0) AS qtyTotal
+      FROM coins c
+      LEFT JOIN records r ON r.coin_id = c.id
+      GROUP BY c.id
+      ORDER BY c.value ASC;
+    `);
+    setCoins(data);
+  }
 
-  const totalGeneral = coins.reduce((sum, c) => sum + (c.total ?? 0), 0);
+  const totalGeneral = coins.reduce((s, c) => s + (c.total ?? 0), 0);
 
-  const handleReset = () => {
-    setMenuVisible(false);
-    Alert.alert("¿Vaciar la vaquita? 🐷", "Se borrará todo el historial del año permanentemente.", [
-      { text: "No", style: "cancel" },
-      { text: "Sí, borrar todo", style: "destructive", onPress: async () => {
-          await deleteAllData();
-          loadCoins();
-      }}
-    ]);
-  };
+  function confirmReset() {
+    Alert.alert(
+      "Reestablecer todo",
+      "Esto eliminará TODOS los registros de monedas.\n\n¿Estás seguro?",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Sí, reestablecer",
+          style: "destructive",
+          onPress: resetAll,
+        },
+      ]
+    );
+  }
+
+  async function resetAll() {
+    await executeSql(`DELETE FROM records;`);
+    loadCoins();
+  }
 
   return (
-    <View style={styles.mainContainer}>
-      {/* Header con el nuevo botón de menú */}
+    <View style={[styles.screen, { paddingTop: insets.top }]}>
+      {/* HEADER */}
       <View style={styles.header}>
         <Text style={styles.title}>La Vaquita</Text>
-        <Pressable onPress={() => setMenuVisible(true)} style={styles.menuIcon}>
-          <Text style={{ fontSize: 24 }}>⚙️</Text>
+
+        <Pressable onPress={confirmReset} style={styles.resetBtn}>
+          <Ionicons name="trash-outline" size={22} color="#8B0000" />
         </Pressable>
       </View>
 
-      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
+      {/* CONTENIDO */}
+      <ScrollView
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* TOTAL */}
         <View style={styles.totalCard}>
-          <Text style={styles.totalLabel}>Total general ahorrado</Text>
-          <Text style={styles.totalValue}>${totalGeneral.toLocaleString("es-CL")}</Text>
+          <Text style={styles.totalLabel}>Total general</Text>
+          <Text style={styles.totalValue}>
+            ${totalGeneral.toLocaleString("es-CL")}
+          </Text>
         </View>
 
-        <Pressable onPress={() => navigation.navigate("History")} style={styles.historyBtn}>
-          <Text style={styles.historyText}>📜 Ver historial de ingresos</Text>
+        {/* HISTORIAL */}
+        <Pressable
+          onPress={() => navigation.navigate("History")}
+          style={styles.historyBtn}
+        >
+          <Ionicons name="time-outline" size={18} color="#5A3E2B" />
+          <Text style={styles.historyText}>Ver historial</Text>
         </Pressable>
 
-        <Text style={styles.sectionTitle}>Registrar monedas</Text>
+        <Text style={styles.sectionTitle}>Registrar / Descontar</Text>
+
+        {/* MONEDAS */}
         {coins.map((coin) => (
-          <Pressable key={coin.id} onPress={() => navigation.navigate("AddCoin", { coinId: coin.id })} style={styles.coinCard}>
-            <View>
+          <View key={coin.id} style={styles.coinCard}>
+            <View style={{ flex: 1 }}>
               <Text style={styles.coinName}>{coin.name}</Text>
-              <Text style={styles.coinTotal}>Acumulado: ${Number(coin.total ?? 0).toLocaleString("es-CL")}</Text>
+              <Text style={styles.coinTotal}>
+                Total: $
+                {Number(coin.total ?? 0).toLocaleString("es-CL")}
+              </Text>
             </View>
-            <View style={styles.addCircle}><Text style={styles.addText}>+</Text></View>
-          </Pressable>
+
+            <View style={styles.actions}>
+              <Pressable
+                onPress={() =>
+                  navigation.navigate("AddCoin", {
+                    coinId: coin.id,
+                    mode: "subtract",
+                  })
+                }
+                style={[styles.circleBtn, styles.minusBtn]}
+              >
+                <Ionicons name="remove" size={22} color="#FFF" />
+              </Pressable>
+
+              <Pressable
+                onPress={() =>
+                  navigation.navigate("AddCoin", {
+                    coinId: coin.id,
+                    mode: "add",
+                  })
+                }
+                style={[styles.circleBtn, styles.plusBtn]}
+              >
+                <Ionicons name="add" size={22} color="#FFF" />
+              </Pressable>
+            </View>
+          </View>
         ))}
       </ScrollView>
-
-      {/* Menú de Opciones */}
-      <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
-        <Pressable style={styles.modalOverlay} onPress={() => setMenuVisible(false)}>
-          <View style={styles.menuBox}>
-            <Text style={styles.menuTitle}>Configuración</Text>
-            <Pressable onPress={handleReset} style={styles.menuItem}>
-              <Text style={styles.resetText}>⚠️ Comenzar de 0 (Borrar todo)</Text>
-            </Pressable>
-            <Pressable onPress={() => setMenuVisible(false)} style={styles.closeBtn}>
-              <Text style={styles.closeText}>Cerrar menú</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  mainContainer: { flex: 1, backgroundColor: "#FFF4E6" },
-  header: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 60, paddingBottom: 10 },
-  title: { fontSize: 28, fontWeight: "900", color: "#4A008B" }, // Primary Purple
-  container: { padding: 16 },
-  totalCard: { backgroundColor: "#F6C1CC", padding: 24, borderRadius: 25, elevation: 4 },
-  totalLabel: { color: "#5A3E2B", fontSize: 14, fontWeight: "700", opacity: 0.8 },
-  totalValue: { fontSize: 38, fontWeight: "900", color: "#5A3E2B" },
-  historyBtn: { backgroundColor: "#EFE7DA", padding: 18, borderRadius: 20, marginVertical: 20 },
-  historyText: { textAlign: "center", color: "#5A3E2B", fontSize: 16, fontWeight: "800" },
-  sectionTitle: { fontSize: 20, fontWeight: "900", color: "#343A40", marginBottom: 15 },
-  coinCard: { backgroundColor: "#FFF", padding: 18, borderRadius: 20, marginBottom: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "center", elevation: 2, borderLeftWidth: 6, borderLeftColor: "#7B1FA2" }, // Secondary Purple
-  coinName: { fontSize: 18, fontWeight: "800" },
-  addCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#F5C36A", justifyContent: "center", alignItems: "center" },
-  addText: { color: "#FFF", fontSize: 26, fontWeight: "bold" },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
-  menuBox: { backgroundColor: '#FFF', width: '80%', borderRadius: 20, padding: 25 },
-  menuTitle: { fontSize: 18, fontWeight: '900', color: '#4A008B', marginBottom: 20, textAlign: 'center' },
-  menuItem: { paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  resetText: { color: '#D32F2F', fontWeight: 'bold', textAlign: 'center' },
-  closeText: { textAlign: 'center', marginTop: 15, color: '#555', fontWeight: 'bold' }
+  screen: {
+    flex: 1,
+    backgroundColor: "#FFF4E6",
+  },
+
+  header: {
+    backgroundColor: "#FFF4E6",
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    paddingTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  title: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#5A3E2B",
+  },
+
+  resetBtn: {
+    backgroundColor: "#FCECEC",
+    padding: 10,
+    borderRadius: 14,
+  },
+
+  container: {
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+  },
+
+  totalCard: {
+    backgroundColor: "#F6C1CC",
+    padding: 20,
+    borderRadius: 20,
+    marginBottom: 16,
+  },
+
+  totalLabel: {
+    color: "#5A3E2B",
+    fontSize: 16,
+  },
+
+  totalValue: {
+    fontSize: 34,
+    fontWeight: "800",
+    color: "#5A3E2B",
+  },
+
+  historyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#EFE7DA",
+    padding: 14,
+    borderRadius: 16,
+    marginBottom: 24,
+  },
+
+  historyText: {
+    color: "#5A3E2B",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#5A3E2B",
+    marginBottom: 12,
+  },
+
+  coinCard: {
+    backgroundColor: "#FFFFFF",
+    padding: 16,
+    borderRadius: 18,
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+
+  coinName: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#5A3E2B",
+  },
+
+  coinTotal: {
+    marginTop: 4,
+    color: "#7A5C48",
+  },
+
+  actions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+
+  circleBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  plusBtn: {
+    backgroundColor: "#F5C36A",
+  },
+
+  minusBtn: {
+    backgroundColor: "#F36A6A",
+  },
 });

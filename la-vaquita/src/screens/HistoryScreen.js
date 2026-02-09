@@ -1,78 +1,134 @@
-import { useCallback, useState } from "react";
-import { View, Text, ScrollView, StyleSheet, Pressable, Alert } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { View, Text, ScrollView, StyleSheet, Pressable } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { executeSql } from "../db/database";
+import { Ionicons } from "@expo/vector-icons";
 
-export default function HistoryScreen() {
+const TZ = "America/Santiago";
+
+function formatMonth(dt) {
+  return new Intl.DateTimeFormat("es-CL", {
+    timeZone: TZ,
+    month: "long",
+    year: "numeric",
+  }).format(dt);
+}
+
+function formatDay(dt) {
+  return new Intl.DateTimeFormat("es-CL", {
+    timeZone: TZ,
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(dt);
+}
+
+function formatTime(dt) {
+  return new Intl.DateTimeFormat("es-CL", {
+    timeZone: TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(dt);
+}
+
+export default function HistoryScreen({ navigation }) {
   const [records, setRecords] = useState([]);
 
-  const loadRecords = useCallback(async () => {
-    try {
-      const rows = await executeSql(`
-        SELECT r.id, r.quantity, r.subtotal, r.created_at, c.name
-        FROM records r
-        JOIN coins c ON c.id = r.coin_id
-        ORDER BY r.created_at DESC;
-      `);
-      setRecords(rows || []);
-    } catch (err) { 
-      console.error("Error al cargar historial:", err); 
+  useFocusEffect(
+    useCallback(() => {
+      loadHistory();
+    }, [])
+  );
+
+  async function loadHistory() {
+    const rows = await executeSql(`
+      SELECT
+        r.id,
+        r.quantity,
+        r.subtotal,
+        r.created_at,
+        c.name AS coin_name,
+        c.value AS coin_value
+      FROM records r
+      INNER JOIN coins c ON c.id = r.coin_id
+      ORDER BY r.created_at DESC;
+    `);
+
+    setRecords(rows || []);
+  }
+
+  const grouped = useMemo(() => {
+    const byMonth = new Map();
+
+    for (const r of records) {
+      const dt = new Date(r.created_at);
+      const monthLabel = formatMonth(dt);
+      const dayLabel = formatDay(dt);
+
+      if (!byMonth.has(monthLabel)) byMonth.set(monthLabel, new Map());
+      const byDay = byMonth.get(monthLabel);
+
+      if (!byDay.has(dayLabel)) byDay.set(dayLabel, []);
+      byDay.get(dayLabel).push({ ...r, _dt: dt });
     }
-  }, []);
 
-  useFocusEffect(useCallback(() => { loadRecords(); }, [loadRecords]));
-
-  const formatDateTime = (timestamp) => {
-    if (!timestamp) return "---";
-    // Convertimos a Number para evitar el error 'Invalid Date'
-    const date = new Date(Number(timestamp)); 
-    return date.toLocaleString("es-CL", {
-      day: "2-digit", month: "2-digit", year: "numeric",
-      hour: "2-digit", minute: "2-digit"
-    });
-  };
-
-  // Función para que tu mamá elimine un error específico
-  const deleteOne = (id) => {
-    Alert.alert(
-      "Eliminar registro", 
-      "¿Estás segura de borrar este ingreso? El total se ajustará automáticamente. 🐷", 
-      [
-        { text: "No, cancelar", style: "cancel" },
-        { 
-          text: "Sí, borrar", 
-          style: "destructive", 
-          onPress: async () => {
-            await executeSql(`DELETE FROM records WHERE id = ?`, [id]);
-            loadRecords(); // Refresca la lista tras borrar
-          }
-        }
-      ]
-    );
-  };
+    const out = [];
+    for (const [monthLabel, byDay] of byMonth.entries()) {
+      const daysArr = [];
+      for (const [dayLabel, items] of byDay.entries()) {
+        daysArr.push({ dayLabel, items });
+      }
+      out.push({ monthLabel, days: daysArr });
+    }
+    return out;
+  }, [records]);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 20 }}>
-      {records.length === 0 ? (
-        <Text style={styles.empty}>La alcancía está vacía. 🐷</Text>
+    <ScrollView style={styles.container}>
+      <View style={styles.topRow}>
+        <Text style={styles.title}>Historial</Text>
+
+        <Pressable
+          onPress={() => navigation.navigate("YearAnalysis")}
+          style={styles.analysisBtn}
+        >
+          <Ionicons name="stats-chart" size={18} color="#5A3E2B" />
+          <Text style={styles.analysisText}>Análisis anual</Text>
+        </Pressable>
+      </View>
+
+      {grouped.length === 0 ? (
+        <Text style={styles.empty}>No hay registros todavía.</Text>
       ) : (
-        records.map((r) => (
-          <Pressable 
-            key={r.id} 
-            onLongPress={() => deleteOne(r.id)} // Mantener presionado para borrar
-            style={({ pressed }) => [
-              styles.card,
-              pressed && { opacity: 0.7 }
-            ]}
-          >
-            <View style={styles.row}>
-              <Text style={styles.coinName}>{r.name}</Text>
-              <Text style={styles.total}>${Number(r.subtotal).toLocaleString("es-CL")}</Text>
-            </View>
-            <Text style={styles.qty}>{r.quantity} monedas guardadas</Text>
-            <Text style={styles.date}>{formatDateTime(r.created_at)}</Text>
-            <Text style={styles.hint}>Mantén presionado para borrar 👆</Text>
-          </Pressable>
+        grouped.map((m) => (
+          <View key={m.monthLabel} style={styles.monthBlock}>
+            <Text style={styles.monthTitle}>{m.monthLabel}</Text>
+
+            {m.days.map((d) => (
+              <View key={d.dayLabel} style={styles.dayBlock}>
+                <Text style={styles.dayTitle}>{d.dayLabel}</Text>
+
+                {d.items.map((r) => {
+                  const sign = r.subtotal < 0 ? "-" : "+";
+                  const absSubtotal = Math.abs(Number(r.subtotal));
+                  const absQty = Math.abs(Number(r.quantity));
+
+                  return (
+                    <View key={r.id} style={styles.card}>
+                      <Text style={styles.coinName}>{r.coin_name}</Text>
+                      <Text style={styles.line}>
+                        {sign} {absQty} monedas — ${absSubtotal.toLocaleString("es-CL")}
+                      </Text>
+                      <Text style={styles.time}>{formatTime(r._dt)}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
         ))
       )}
     </ScrollView>
@@ -81,20 +137,43 @@ export default function HistoryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FFF4E6", padding: 16 },
-  empty: { textAlign: 'center', marginTop: 50, color: '#7A5C48', fontWeight: 'bold' },
-  card: { 
-    backgroundColor: "#FFF", 
-    padding: 18, 
-    borderRadius: 18, 
-    marginBottom: 12, 
-    elevation: 3, 
-    borderLeftWidth: 6, 
-    borderLeftColor: "#7B1FA2" // Púrpura secundario
+
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  row: { flexDirection: "row", justifyContent: "space-between", alignItems: 'center' },
-  coinName: { fontSize: 18, fontWeight: "900", color: "#343A40" },
-  total: { fontSize: 18, fontWeight: "900", color: "#4A008B" }, // Púrpura primario
-  qty: { color: "#555555", marginTop: 4, fontWeight: '600' },
-  date: { color: "#9E8574", fontSize: 12, marginTop: 10 },
-  hint: { fontSize: 10, color: "#7B1FA2", textAlign: 'right', marginTop: 5, fontStyle: 'italic' }
+
+  title: { fontSize: 22, fontWeight: "800", color: "#5A3E2B" },
+
+  analysisBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#EFE7DA",
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+  },
+
+  analysisText: { color: "#5A3E2B", fontWeight: "800", fontSize: 14 },
+
+  empty: { color: "#7A5C48", marginTop: 12, fontWeight: "700" },
+
+  monthBlock: { marginTop: 12, marginBottom: 18 },
+  monthTitle: { fontSize: 18, fontWeight: "900", color: "#5A3E2B", marginBottom: 8 },
+
+  dayBlock: { marginBottom: 10 },
+  dayTitle: { fontSize: 14, fontWeight: "800", color: "#7A5C48", marginBottom: 8 },
+
+  card: {
+    backgroundColor: "#FFFFFF",
+    padding: 16,
+    borderRadius: 18,
+    marginBottom: 10,
+  },
+
+  coinName: { fontSize: 16, fontWeight: "800", color: "#5A3E2B" },
+  line: { marginTop: 4, color: "#7A5C48", fontSize: 14 },
+  time: { marginTop: 6, color: "#A08A7A", fontSize: 12 },
 });

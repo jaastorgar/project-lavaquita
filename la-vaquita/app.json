@@ -30,6 +30,13 @@
     "plugins": [
       "expo-sqlite",
       "expo-secure-store"
-    ]
+    ],
+    "owner": "javito",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/1deb6b1f-836c-43c4-a123-6257b831b948"
+    }
   }
 }
